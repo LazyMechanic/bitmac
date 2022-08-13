@@ -106,6 +106,12 @@ impl<E> Debug for Bitmap<E> {
     }
 }
 
+impl<E> From<Bitmap<E>> for Vec<u8> {
+    fn from(f: Bitmap<E>) -> Self {
+        f.data
+    }
+}
+
 pub(crate) fn set_impl(data: &mut [u8], bo: &BitOrder, idx: usize, v: bool) {
     let bit_idx = idx & 0b0111;
     let byte_idx = idx >> 3;
