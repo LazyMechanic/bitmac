@@ -1,4 +1,4 @@
-const BITS_IN_BYTE: usize = 8;
+use crate::BITS_IN_BYTE;
 
 pub trait Extender {
     /// Will be called when the bitmap needs to extend its container.
