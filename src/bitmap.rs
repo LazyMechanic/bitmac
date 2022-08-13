@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::{bit_order::BitOrder, extender::Extender, BITS_IN_BYTE};
 
-/// Owned bitmap.
+/// Owned bitmap. Can grow in size if you set bit out of bounds.
 ///
 /// Usage example:
 /// ```
@@ -11,7 +11,9 @@ use crate::{bit_order::BitOrder, extender::Extender, BITS_IN_BYTE};
 ///
 /// bitmap.set(0, true);
 /// bitmap.set(7, true);
+/// assert_eq!(bitmap.as_bytes().len(), 1);
 /// bitmap.set(15, true);
+/// assert_eq!(bitmap.as_bytes().len(), 2);
 ///
 /// assert_eq!(bitmap.get(0), true);
 /// assert_eq!(bitmap.get(7), true);
@@ -34,6 +36,7 @@ impl<E> Bitmap<E>
 where
     E: Extender,
 {
+    /// Creates new empty bitmap.
     pub fn new(extender: E, bit_order: BitOrder) -> Self {
         Self {
             data: vec![],
@@ -42,6 +45,19 @@ where
         }
     }
 
+    /// Creates new bitmap from preallocated bytes.
+    pub fn from_data<V>(data: V, extender: E, bit_order: BitOrder) -> Self
+    where
+        V: Into<Vec<u8>>,
+    {
+        Self {
+            data: data.into(),
+            extender,
+            bit_order,
+        }
+    }
+
+    /// Creates new bitmap with preallocation of bytes.
     pub fn with_capacity(bytes_cap: usize, extender: E, bit_order: BitOrder) -> Self {
         Self {
             data: Vec::with_capacity(bytes_cap),
@@ -52,14 +68,6 @@ where
 
     /// Set bit to specified state. If container smaller that needs then extends it.
     pub fn set(&mut self, idx: usize, v: bool) {
-        fn set_impl(data: &mut [u8], bo: &BitOrder, idx: usize, v: bool) {
-            let bit_idx = 0b0111 - (idx & 0b0111);
-            let byte_idx = idx >> 3;
-
-            let byte = &mut data[byte_idx];
-            *byte = bo.set(*byte, bit_idx, v);
-        }
-
         let max_idx = self.data.len() * BITS_IN_BYTE;
         match idx {
             // Index fits in the bitmap
@@ -78,17 +86,9 @@ where
         }
     }
 
-    /// Set bit state.
+    /// Get bit state.
     pub fn get(&self, idx: usize) -> bool {
-        let bit_idx = 0b0111 - (idx & 0b0111);
-        let byte_idx = idx >> 3;
-
-        // If idx out of bounds
-        if byte_idx >= self.data.len() {
-            return false;
-        }
-
-        self.bit_order.get(self.data[byte_idx], bit_idx)
+        get_impl(&self.data, &self.bit_order, idx)
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -104,4 +104,24 @@ impl<E> Debug for Bitmap<E> {
         }
         dl.finish()
     }
+}
+
+pub(crate) fn set_impl(data: &mut [u8], bo: &BitOrder, idx: usize, v: bool) {
+    let bit_idx = idx & 0b0111;
+    let byte_idx = idx >> 3;
+
+    let byte = &mut data[byte_idx];
+    *byte = bo.set(*byte, bit_idx, v);
+}
+
+pub(crate) fn get_impl(data: &[u8], bo: &BitOrder, idx: usize) -> bool {
+    let bit_idx = idx & 0b0111;
+    let byte_idx = idx >> 3;
+
+    // If idx out of bounds
+    if byte_idx >= data.len() {
+        return false;
+    }
+
+    bo.get(data[byte_idx], bit_idx)
 }
