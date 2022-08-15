@@ -2,8 +2,10 @@ use std::fmt::{Debug, Formatter};
 
 use crate::{get_impl, set_impl, BitAccess, OutOfBoundsError, BITS_IN_BYTE};
 
-/// Bitmap that borrows bytes. Helpful if you have already allocated bytes
-/// and you want to just look at them as bitmap, without modifications.
+/// Bitmap that borrows bytes.
+///
+/// Helpful if you have already allocated bytes and you want to just look at them as bitmap,
+/// without modifications.
 ///
 /// Usage example:
 /// ```
@@ -72,7 +74,7 @@ impl<B> Debug for BitmapRef<'_, B> {
 
 impl<B> AsRef<[u8]> for BitmapRef<'_, B> {
     fn as_ref(&self) -> &[u8] {
-        self.data.as_ref()
+        self.data
     }
 }
 
@@ -88,8 +90,9 @@ where
     }
 }
 
-/// Bitmap that borrows mutable bytes. Helpful if you have already allocated bytes
-/// and you want to just look at them as bitmap and modify it.
+/// Bitmap that borrows mutable bytes.
+///
+/// Helpful if you have already allocated bytes and you want to just look at them as bitmap and modify it.
 /// Cannot increase the number of bytes.
 ///
 /// Usage example:
@@ -182,13 +185,13 @@ impl<B> Debug for BitmapRefMut<'_, B> {
 
 impl<B> AsRef<[u8]> for BitmapRefMut<'_, B> {
     fn as_ref(&self) -> &[u8] {
-        self.data.as_ref()
+        self.data
     }
 }
 
 impl<B> AsMut<[u8]> for BitmapRefMut<'_, B> {
     fn as_mut(&mut self) -> &mut [u8] {
-        self.data.as_mut()
+        self.data
     }
 }
 

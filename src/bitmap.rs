@@ -131,17 +131,15 @@ where
                     self.data.try_resize(new_len, 0u8)?;
                 }
                 set_impl(self.data.as_mut(), &self.bit_access, idx, value);
-            } else {
-                if let Some(FinalLength(new_len)) =
-                    self.resizing_strategy
-                        .try_resize_opt(min_req_len, old_len, idx)?
-                {
-                    // Resize container if new length doesn't match old length
-                    if new_len != old_len {
-                        self.data.try_resize(new_len, 0u8)?;
-                    }
-                    set_impl(self.data.as_mut(), &self.bit_access, idx, value);
+            } else if let Some(FinalLength(new_len)) =
+                self.resizing_strategy
+                    .try_resize_opt(min_req_len, old_len, idx)?
+            {
+                // Resize container if new length doesn't match old length
+                if new_len != old_len {
+                    self.data.try_resize(new_len, 0u8)?;
                 }
+                set_impl(self.data.as_mut(), &self.bit_access, idx, value);
             }
         }
 

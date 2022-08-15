@@ -1,3 +1,4 @@
+// Trait provides functions for accessing to bit in byte.
 pub trait BitAccess: private::Sealed {
     /// Changes bit state. `bit_idx` is guaranteed to be `0..=7`.
     fn set(&self, byte: u8, bit_idx: usize, state: bool) -> u8;
@@ -10,7 +11,7 @@ pub trait BitAccess: private::Sealed {
 ///
 /// Example:
 /// ```
-/// # use bitmac::bit_access::{MSB, BitAccess};
+/// use bitmac::bit_access::{MSB, BitAccess};
 /// assert_eq!(MSB.set(0b0000_0000, 0, true), 0b1000_0000);
 /// ```
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
@@ -57,7 +58,7 @@ impl BitAccess for MSB {
 ///
 /// Example:
 /// ```
-/// # use bitmac::bit_access::{LSB, BitAccess};
+/// use bitmac::bit_access::{LSB, BitAccess};
 /// assert_eq!(LSB.set(0b0000_0000, 0, true), 0b0000_0001);
 /// ```
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
@@ -104,7 +105,7 @@ impl BitAccess for LSB {
 ///
 /// Example:
 /// ```
-/// # use bitmac::bit_access::{MSB, LSB, DynBitAccess, BitAccess};
+/// use bitmac::bit_access::{MSB, LSB, DynBitAccess, BitAccess};
 /// assert_eq!(DynBitAccess::MSB.set(0b0000_0000, 0, true), MSB.set(0b0000_0000, 0, true));
 /// assert_eq!(DynBitAccess::LSB.set(0b0000_0000, 0, true), LSB.set(0b0000_0000, 0, true));
 /// ```
