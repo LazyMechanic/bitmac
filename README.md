@@ -7,20 +7,12 @@ This library provides implementation of bitmap with custom bit accessing and res
 
 ```toml
 [dependencies]
-bitmac = "0.1"
+bitmac = "0.2"
 ```
 
-### Resizing strategy
-This library provides several resizing strategy.
-
-- `MinimalRequiredStrategy` - resize to minimum required bytes
-- `FixedStrategy` - advance size by fixed steps
-- `StaticStrategy` - never increases the size, returns an error if an increase is required, useful for const containers (`[u8; N]`)
-
-You can implement your own `ResizingStrategy`.
-
-### BitAccess
-The bytes in a bitmap can be stored in LSB or MSB order. In LSB order, the 0th bit of the bitmap is the least significant bit, i.e. `0b0000_0001` it means that `bitmap.get(0) == true` and on the other hand for the MSB (most significant bit) order, this means that `bitmap.get(7) == true`.
+### Features
+- `bytes` - implemented trait `ContainerMut` for `BytesMut`
+- `smallvec` - implemented trait `ContainerMut` for `SmallVec`
 
 ### Example
 ```rust
