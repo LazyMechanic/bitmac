@@ -13,3 +13,4 @@ keywords = ["bitmap", "bit", "flags", "bitflags"]
 rust-version = "1.56.0"
 
 [dependencies]
+thiserror = "1.0"

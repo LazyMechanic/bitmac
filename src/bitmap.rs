@@ -5,28 +5,26 @@ use crate::{
     ResizingStrategy, BITS_IN_BYTE,
 };
 
-/// Bitmap that owns the container.
+/// Bitmap that owns the container. Container can dynamically grow if needed.
+/// You can use any container that implements [`Container`] trait.
+/// Default implementations for `Vec<u8>` and `[u8; N]`.
 ///
 /// Usage example:
 /// ```
-/// # use bitmac::{Bitmap, LSB, MinimumRequiredStrategy};
+/// # use bitmac::{MinimumRequiredStrategy, LSB, Bitmap};
+/// # fn main() {
 /// let mut bitmap = Bitmap::<Vec<u8>, MinimumRequiredStrategy, LSB>::default();
 ///
-/// bitmap.set(0, true);
-/// bitmap.set(7, true);
-/// assert_eq!(bitmap.as_bytes().len(), 1);
+/// assert_eq!(bitmap.as_bytes().len(), 0);
+///
+/// assert!(!bitmap.get(0));
+/// assert!(!bitmap.get(7));
+/// assert!(!bitmap.get(300));
+///
 /// bitmap.set(15, true);
 /// assert_eq!(bitmap.as_bytes().len(), 2);
-///
-/// assert_eq!(bitmap.get(0), true);
-/// assert_eq!(bitmap.get(7), true);
-/// assert_eq!(bitmap.get(15), true);
-///
-/// assert_eq!(bitmap.get(1), false);
-/// assert_eq!(bitmap.get(8), false);
-/// assert_eq!(bitmap.get(300), false);
-///
-/// assert_eq!(bitmap.as_bytes().len(), 2);
+/// assert!(bitmap.get(15));
+/// # }
 /// ```
 #[derive(Clone, Eq, PartialEq)]
 pub struct Bitmap<C, S, B> {
@@ -118,32 +116,48 @@ where
     /// resizing strategy allowed then resize it.
     ///
     /// If resizing failed then nothing will happen.
-    pub fn set(&mut self, idx: usize, v: bool) {
-        let _ = self.try_set(idx, v);
+    pub fn set(&mut self, idx: usize, value: bool) {
+        let _ = self.try_set(idx, value);
     }
 
     /// Set bit to specified state. If container smaller that needs and
     /// resizing strategy allowed then resize it.
     ///
     /// If resizing failed then return error.
-    pub fn try_set(&mut self, idx: usize, v: bool) -> Result<(), ResizeError> {
+    pub fn try_set(&mut self, idx: usize, value: bool) -> Result<(), ResizeError> {
         let max_idx = self.data.as_ref().len() * BITS_IN_BYTE;
         if idx < max_idx {
-            set_impl(self.data.as_mut(), &self.bit_access, idx, v);
+            set_impl(self.data.as_mut(), &self.bit_access, idx, value);
         } else {
+            // Change state only if set to true
             // Try to resize container
             let old_len = self.data.as_ref().len();
             let min_req_len = old_len + (idx - max_idx) / BITS_IN_BYTE + 1;
             let min_req_len = MinimumRequiredLength(min_req_len);
-            let FinalLength(new_len) =
-                self.resizing_strategy
-                    .try_resize(min_req_len, old_len, idx)?;
 
-            // Resize container if new length doesn't match old length
-            if new_len != old_len {
-                self.data.try_resize(new_len, 0u8)?;
+            // Call .try_resize() if new value is `1` and .try_resize_opt() if new value is `0`
+            if value {
+                let FinalLength(new_len) =
+                    self.resizing_strategy
+                        .try_resize(min_req_len, old_len, idx)?;
+
+                // Resize container if new length doesn't match old length
+                if new_len != old_len {
+                    self.data.try_resize(new_len, 0u8)?;
+                }
+                set_impl(self.data.as_mut(), &self.bit_access, idx, value);
+            } else {
+                if let Some(FinalLength(new_len)) =
+                    self.resizing_strategy
+                        .try_resize_opt(min_req_len, old_len, idx)?
+                {
+                    // Resize container if new length doesn't match old length
+                    if new_len != old_len {
+                        self.data.try_resize(new_len, 0u8)?;
+                    }
+                    set_impl(self.data.as_mut(), &self.bit_access, idx, value);
+                }
             }
-            set_impl(self.data.as_mut(), &self.bit_access, idx, v);
         }
 
         Ok(())
@@ -259,5 +273,302 @@ mod tests {
         let _: Bitmap<[u8; 32], StaticStrategy, DynBitAccess> = Bitmap::from_parts([0u8; 32], StaticStrategy::default(), DynBitAccess::LSB);
         let _: Bitmap<Vec<u8>, FixedStrategy, DynBitAccess> = Bitmap::from_parts(Vec::new(), FixedStrategy(5), DynBitAccess::LSB);
         let _: Bitmap<[u8; 32], FixedStrategy, DynBitAccess> = Bitmap::from_parts([0u8; 32], FixedStrategy(5), DynBitAccess::LSB);
+    }
+
+    #[test]
+    fn opt_resize() {
+        let mut bitmap = Bitmap::<Vec<u8>, MinimumRequiredStrategy, LSB>::default();
+
+        bitmap.set(128, false);
+        assert_eq!(bitmap.as_bytes().len(), 0);
+        assert!(!bitmap.get(128));
+
+        bitmap.set(0, false);
+        assert_eq!(bitmap.as_bytes().len(), 0);
+        assert!(!bitmap.get(0));
+
+        assert_eq!(bitmap.as_bytes(), &[]);
+    }
+
+    #[test]
+    fn vec_minimum_lsb() {
+        let mut bitmap = Bitmap::<Vec<u8>, MinimumRequiredStrategy, LSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b0000_0001,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0001_0000,
+            ]
+        );
+    }
+
+    #[test]
+    fn vec_minimum_msb() {
+        let mut bitmap = Bitmap::<Vec<u8>, MinimumRequiredStrategy, MSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b1000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_1000,
+            ]
+        );
+    }
+
+    #[test]
+    fn vec_fixed_lsb() {
+        let mut bitmap = Bitmap::<Vec<u8>, _, LSB>::with_resizing_strategy(FixedStrategy(3));
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 3);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 3);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 6);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 18);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b0000_0001,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0001_0000,
+                0b0000_0000,
+            ]
+        );
+    }
+
+    #[test]
+    fn vec_fixed_msb() {
+        let mut bitmap = Bitmap::<Vec<u8>, _, MSB>::with_resizing_strategy(FixedStrategy(3));
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 3);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 3);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 6);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 18);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b1000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_1000,
+                0b0000_0000,
+            ]
+        );
+    }
+
+    #[test]
+    fn arr_static_lsb() {
+        let mut bitmap = Bitmap::<[u8; 4], StaticStrategy, LSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        assert!(bitmap.try_set(132, true).is_err());
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(!bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[0b0000_0001, 0b1000_0000, 0b0000_0000, 0b0000_0001]
+        );
+    }
+
+    #[test]
+    fn arr_static_msb() {
+        let mut bitmap = Bitmap::<[u8; 4], StaticStrategy, MSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        assert!(bitmap.try_set(132, true).is_err());
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(!bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[0b1000_0000, 0b0000_0001, 0b0000_0000, 0b1000_0000]
+        );
+    }
+
+    #[test]
+    fn vec_static_lsb() {
+        let mut bitmap = Bitmap::<_, StaticStrategy, LSB>::from_bytes(vec![0u8; 4]);
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        assert!(bitmap.try_set(132, true).is_err());
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(!bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[0b0000_0001, 0b1000_0000, 0b0000_0000, 0b0000_0001]
+        );
+    }
+
+    #[test]
+    fn vec_static_msb() {
+        let mut bitmap = Bitmap::<_, StaticStrategy, MSB>::from_bytes(vec![0u8; 4]);
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        assert!(bitmap.try_set(132, true).is_err());
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(!bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[0b1000_0000, 0b0000_0001, 0b0000_0000, 0b1000_0000]
+        );
     }
 }

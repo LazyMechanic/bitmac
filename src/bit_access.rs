@@ -1,4 +1,4 @@
-pub trait BitAccess {
+pub trait BitAccess: private::Sealed {
     /// Changes bit state. `bit_idx` is guaranteed to be `0..=7`.
     fn set(&self, byte: u8, bit_idx: usize, state: bool) -> u8;
 
@@ -128,6 +128,16 @@ impl BitAccess for DynBitAccess {
             DynBitAccess::LSB => LSB.get(byte, bit_idx),
         }
     }
+}
+
+mod private {
+    use super::{DynBitAccess, LSB, MSB};
+
+    pub trait Sealed {}
+
+    impl Sealed for LSB {}
+    impl Sealed for MSB {}
+    impl Sealed for DynBitAccess {}
 }
 
 #[cfg(test)]

@@ -1,19 +1,34 @@
 use crate::ResizeError;
 
-/// Determines strategy of bitmap container growing.
+/// Determines strategy of bitmap container resizing.
 pub trait ResizingStrategy {
     /// Will be called when the bitmap needs to extend its container.
     /// New length always >= minimal required length of container.
-    /// If returns `Err(_)` then container is not extended.
+    ///
+    /// If returns `Err(_)` then container is not resized.
     fn try_resize(
         &mut self,
         min_req_len: MinimumRequiredLength,
         old_len: usize,
         bit_idx: usize,
     ) -> Result<FinalLength, ResizeError>;
+
+    /// Will be called when a bitmap needs to resize its container to put a value,
+    /// but new bit value is `0` (`false`), which means container resizing is optional.
+    ///
+    /// For performance reasons, all bits outside of the container access are
+    /// considered to be `0`. The default behavior is to return `Ok(None)`.
+    fn try_resize_opt(
+        &mut self,
+        _min_req_len: MinimumRequiredLength,
+        _old_len: usize,
+        _bit_idx: usize,
+    ) -> Result<Option<FinalLength>, ResizeError> {
+        Ok(None)
+    }
 }
 
-/// Increases the size of the container in a minimum of required increment.
+/// Increases the size of the container to the minimum required size.
 ///
 /// Example:
 /// ```
@@ -61,11 +76,15 @@ impl ResizingStrategy for FixedStrategy {
     fn try_resize(
         &mut self,
         min_req_len: MinimumRequiredLength,
-        old_len: usize,
+        _old_len: usize,
         _bit_idx: usize,
     ) -> Result<FinalLength, ResizeError> {
-        let rest = usize::max(min_req_len.value() / self.0, 1) * self.0 - old_len;
-        Ok(min_req_len.advance_by(rest))
+        if min_req_len.value() % self.0 == 0 {
+            Ok(min_req_len.finalize())
+        } else {
+            let rest = (min_req_len.value() / self.0 + 1) * self.0 - min_req_len.value();
+            Ok(min_req_len.advance_by(rest))
+        }
     }
 }
 
@@ -138,5 +157,97 @@ impl FinalLength {
     #[inline]
     pub fn value(&self) -> usize {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_minimal() {
+        let mut s = MinimumRequiredStrategy::default();
+        
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 1, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 2, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 3, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 4, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 5, 0).unwrap().value(), 1);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 2, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 3, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 4, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 5, 0).unwrap().value(), 2);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 1, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 2, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 3, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 4, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 5, 0).unwrap().value(), 3);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(21), 5, 0).unwrap().value(), 21);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(25), 5, 0).unwrap().value(), 25);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_fixed() {
+        let mut s = FixedStrategy(3);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 1, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 2, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 3, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 4, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 5, 0).unwrap().value(), 3);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 2, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 3, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 4, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 5, 0).unwrap().value(), 3);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 1, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 2, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 3, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 4, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 5, 0).unwrap().value(), 3);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 1, 0).unwrap().value(), 6);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 2, 0).unwrap().value(), 6);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 3, 0).unwrap().value(), 6);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 4, 0).unwrap().value(), 6);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 5, 0).unwrap().value(), 6);
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(21), 5, 0).unwrap().value(), 21);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(25), 5, 0).unwrap().value(), 27);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_static() {
+        let mut s = StaticStrategy;
+
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 1, 0).unwrap().value(), 1);
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 2, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 3, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 4, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 5, 0).is_err());
+
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 2, 0).unwrap().value(), 2);
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 3, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 4, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 5, 0).is_err());
+
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 1, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 2, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 3, 0).unwrap().value(), 3);
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 4, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 5, 0).is_err());
+
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(21), 5, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(25), 25, 0).unwrap().value(), 25);
     }
 }
