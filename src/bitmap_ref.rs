@@ -70,6 +70,24 @@ impl<B> Debug for BitmapRef<'_, B> {
     }
 }
 
+impl<B> AsRef<[u8]> for BitmapRef<'_, B> {
+    fn as_ref(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+}
+
+impl<'a, B> From<&'a [u8]> for BitmapRef<'a, B>
+where
+    B: BitAccess + Default,
+{
+    fn from(f: &'a [u8]) -> Self {
+        Self {
+            data: f,
+            bit_access: B::default(),
+        }
+    }
+}
+
 /// Bitmap that borrows mutable bytes. Helpful if you have already allocated bytes
 /// and you want to just look at them as bitmap and modify it.
 /// Cannot increase the number of bytes.
@@ -159,6 +177,30 @@ impl<B> Debug for BitmapRefMut<'_, B> {
             dl.entry(&format_args!("{:08b}", el));
         }
         dl.finish()
+    }
+}
+
+impl<B> AsRef<[u8]> for BitmapRefMut<'_, B> {
+    fn as_ref(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+}
+
+impl<B> AsMut<[u8]> for BitmapRefMut<'_, B> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.data.as_mut()
+    }
+}
+
+impl<'a, B> From<&'a mut [u8]> for BitmapRefMut<'a, B>
+where
+    B: BitAccess + Default,
+{
+    fn from(f: &'a mut [u8]) -> Self {
+        Self {
+            data: f,
+            bit_access: B::default(),
+        }
     }
 }
 

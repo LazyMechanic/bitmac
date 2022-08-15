@@ -33,21 +33,6 @@ pub struct Bitmap<C, S, B> {
     bit_access: B,
 }
 
-impl<C, S, B> Default for Bitmap<C, S, B>
-where
-    C: Container + Default,
-    S: ResizingStrategy + Default,
-    B: BitAccess + Default,
-{
-    fn default() -> Self {
-        Self {
-            data: Default::default(),
-            resizing_strategy: Default::default(),
-            bit_access: Default::default(),
-        }
-    }
-}
-
 impl<C, S, B> Bitmap<C, S, B> {
     /// Creates new bitmap from container with specified resizing strategy.
     pub fn new(data: C, resizing_strategy: S) -> Bitmap<C, S, B>
@@ -173,9 +158,29 @@ where
         self.data.as_ref()
     }
 
+    /// Represents bitmap as mutable slice of bytes.
+    pub fn as_mut_bytes(&mut self) -> &mut [u8] {
+        self.data.as_mut()
+    }
+
     /// Converts bitmap to inner container.
     pub fn into_inner(self) -> C {
         self.data
+    }
+}
+
+impl<C, S, B> Default for Bitmap<C, S, B>
+where
+    C: Container + Default,
+    S: ResizingStrategy + Default,
+    B: BitAccess + Default,
+{
+    fn default() -> Self {
+        Self {
+            data: Default::default(),
+            resizing_strategy: Default::default(),
+            bit_access: Default::default(),
+        }
     }
 }
 
@@ -189,6 +194,39 @@ where
             dl.entry(&format_args!("{:08b}", el));
         }
         dl.finish()
+    }
+}
+
+impl<C, S, B> AsRef<[u8]> for Bitmap<C, S, B>
+where
+    C: Container,
+{
+    fn as_ref(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+}
+
+impl<C, S, B> AsMut<[u8]> for Bitmap<C, S, B>
+where
+    C: Container,
+{
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.data.as_mut()
+    }
+}
+
+impl<C, S, B> From<C> for Bitmap<C, S, B>
+where
+    C: Container,
+    S: ResizingStrategy + Default,
+    B: BitAccess + Default,
+{
+    fn from(f: C) -> Self {
+        Self {
+            data: f,
+            resizing_strategy: S::default(),
+            bit_access: B::default(),
+        }
     }
 }
 
