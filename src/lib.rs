@@ -1,6 +1,10 @@
 //! # bitmac
 //! This library provides implementation of bitmap with custom bit accessing and resizing strategy.
 //!
+//! ### Features
+//! - `bytes` - implemented trait [`ContainerMut`] for [`BytesMut`]
+//! - `smallvec` - implemented trait [`ContainerMut`] for [`SmallVec`]
+//!
 //! ### Resizing strategy
 //! The library provides several resizing strategy.
 //!
@@ -106,8 +110,9 @@
 //!
 //! ### Bitmap
 //! [`Bitmap`] that owns the container. Container can dynamically grow if needed.
-//! You can use any container that implements [`Container`] trait.
-//! Default implementations for `Vec<u8>` and `[u8; N]`.
+//!
+//! You can use any container that implements the `AsRef<[u8]>` trait for read-only access and
+//! the [`ContainerMut`] trait for write access
 //!
 //! Usage example:
 //! ```
@@ -173,7 +178,6 @@
 //! # }
 //! ```
 //!
-//!
 //! [`ResizingStrategy`]: crate::resizing_strategy::ResizingStrategy
 //! [`MinimumRequiredStrategy`]: crate::resizing_strategy::MinimumRequiredStrategy
 //! [`FixedStrategy`]: crate::resizing_strategy::FixedStrategy
@@ -182,10 +186,12 @@
 //! [`LSB`]: crate::bit_access::LSB
 //! [`MSB`]: crate::bit_access::MSB
 //! [`DynBitAccess`]: crate::bit_access::DynBitAccess
-//! [`Container`]: crate::container::Container
+//! [`ContainerMut`]: crate::container::ContainerMut
 //! [`Bitmap`]: crate::bitmap::Bitmap
 //! [`BitmapRef`]: crate::bitmap_ref::BitmapRef
 //! [`BitmapRefMut`]: crate::bitmap_ref::BitmapRefMut
+//! [`BytesMut`]: https://docs.rs/bytes/latest/bytes/
+//! [`SmallVec`]: https://docs.rs/smallvec/latest/smallvec/
 
 pub mod bit_access;
 pub mod bitmap;

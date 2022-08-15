@@ -1,13 +1,14 @@
 use std::fmt::{Debug, Formatter};
 
 use crate::{
-    get_impl, set_impl, BitAccess, Container, FinalLength, MinimumRequiredLength, ResizeError,
+    get_impl, set_impl, BitAccess, ContainerMut, FinalLength, MinimumRequiredLength, ResizeError,
     ResizingStrategy, BITS_IN_BYTE,
 };
 
 /// Bitmap that owns the container. Container can dynamically grow if needed.
-/// You can use any container that implements [`Container`] trait.
-/// Default implementations for `Vec<u8>` and `[u8; N]`.
+///
+/// You can use any container that implements the `AsRef<[u8]>` trait for read-only access and
+/// the [`ContainerMut`] trait for write access.
 ///
 /// Usage example:
 /// ```
@@ -37,7 +38,7 @@ impl<C, S, B> Bitmap<C, S, B> {
     /// Creates new bitmap from container with specified resizing strategy.
     pub fn new(data: C, resizing_strategy: S) -> Bitmap<C, S, B>
     where
-        C: Container,
+        C: AsRef<[u8]>,
         S: ResizingStrategy,
         B: BitAccess + Default,
     {
@@ -51,7 +52,7 @@ impl<C, S, B> Bitmap<C, S, B> {
     /// Creates new bitmap from bytes.
     pub fn from_bytes(data: C) -> Bitmap<C, S, B>
     where
-        C: Container,
+        C: AsRef<[u8]>,
         S: ResizingStrategy + Default,
         B: BitAccess + Default,
     {
@@ -65,7 +66,7 @@ impl<C, S, B> Bitmap<C, S, B> {
     /// Creates new empty bitmap with specified resizing strategy.
     pub fn with_resizing_strategy(resizing_strategy: S) -> Bitmap<C, S, B>
     where
-        C: Container + Default,
+        C: AsRef<[u8]> + Default,
         S: ResizingStrategy,
         B: BitAccess + Default,
     {
@@ -79,7 +80,7 @@ impl<C, S, B> Bitmap<C, S, B> {
     /// Creates new bitmap from parts.
     pub fn from_parts(data: C, resizing_strategy: S, bit_access: B) -> Bitmap<C, S, B>
     where
-        C: Container,
+        C: AsRef<[u8]>,
         S: ResizingStrategy,
         B: BitAccess,
     {
@@ -93,7 +94,29 @@ impl<C, S, B> Bitmap<C, S, B> {
 
 impl<C, S, B> Bitmap<C, S, B>
 where
-    C: Container,
+    C: AsRef<[u8]>,
+    S: ResizingStrategy,
+    B: BitAccess,
+{
+    /// Get bit state.
+    pub fn get(&self, idx: usize) -> bool {
+        get_impl(self.data.as_ref(), &self.bit_access, idx)
+    }
+
+    /// Represents bitmap as slice of bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.data.as_ref()
+    }
+
+    /// Converts bitmap to inner container.
+    pub fn into_inner(self) -> C {
+        self.data
+    }
+}
+
+impl<C, S, B> Bitmap<C, S, B>
+where
+    C: ContainerMut,
     S: ResizingStrategy,
     B: BitAccess,
 {
@@ -146,30 +169,15 @@ where
         Ok(())
     }
 
-    /// Get bit state.
-    pub fn get(&self, idx: usize) -> bool {
-        get_impl(self.data.as_ref(), &self.bit_access, idx)
-    }
-
-    /// Represents bitmap as slice of bytes.
-    pub fn as_bytes(&self) -> &[u8] {
-        self.data.as_ref()
-    }
-
     /// Represents bitmap as mutable slice of bytes.
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         self.data.as_mut()
-    }
-
-    /// Converts bitmap to inner container.
-    pub fn into_inner(self) -> C {
-        self.data
     }
 }
 
 impl<C, S, B> Default for Bitmap<C, S, B>
 where
-    C: Container + Default,
+    C: AsRef<[u8]> + Default,
     S: ResizingStrategy + Default,
     B: BitAccess + Default,
 {
@@ -184,7 +192,7 @@ where
 
 impl<C, S, B> Debug for Bitmap<C, S, B>
 where
-    C: Container,
+    C: AsRef<[u8]>,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut dl = f.debug_list();
@@ -197,7 +205,7 @@ where
 
 impl<C, S, B> AsRef<[u8]> for Bitmap<C, S, B>
 where
-    C: Container,
+    C: AsRef<[u8]>,
 {
     fn as_ref(&self) -> &[u8] {
         self.data.as_ref()
@@ -206,7 +214,7 @@ where
 
 impl<C, S, B> AsMut<[u8]> for Bitmap<C, S, B>
 where
-    C: Container,
+    C: AsMut<[u8]>,
 {
     fn as_mut(&mut self) -> &mut [u8] {
         self.data.as_mut()
@@ -215,7 +223,7 @@ where
 
 impl<C, S, B> From<C> for Bitmap<C, S, B>
 where
-    C: Container,
+    C: AsRef<[u8]>,
     S: ResizingStrategy + Default,
     B: BitAccess + Default,
 {
@@ -605,6 +613,296 @@ mod tests {
         assert_eq!(
             bitmap.as_bytes(),
             &[0b1000_0000, 0b0000_0001, 0b0000_0000, 0b1000_0000]
+        );
+    }
+
+    #[test]
+    fn static_slice_static_lsb() {
+        let bitmap =
+            Bitmap::<&'static [u8], StaticStrategy, LSB>::from_bytes(&[0b0001_0001, 0b1001_0010]);
+
+        assert!(bitmap.get(0));
+        assert!(!bitmap.get(1));
+        assert!(!bitmap.get(2));
+        assert!(!bitmap.get(3));
+        assert!(bitmap.get(4));
+        assert!(!bitmap.get(5));
+        assert!(!bitmap.get(6));
+        assert!(!bitmap.get(7));
+
+        assert!(!bitmap.get(8));
+        assert!(bitmap.get(9));
+        assert!(!bitmap.get(10));
+        assert!(!bitmap.get(11));
+        assert!(bitmap.get(12));
+        assert!(!bitmap.get(13));
+        assert!(!bitmap.get(14));
+        assert!(bitmap.get(15));
+    }
+
+    #[test]
+    fn static_slice_static_msb() {
+        let bitmap =
+            Bitmap::<&'static [u8], StaticStrategy, MSB>::from_bytes(&[0b0001_0001, 0b1001_0010]);
+
+        assert!(!bitmap.get(0));
+        assert!(!bitmap.get(1));
+        assert!(!bitmap.get(2));
+        assert!(bitmap.get(3));
+        assert!(!bitmap.get(4));
+        assert!(!bitmap.get(5));
+        assert!(!bitmap.get(6));
+        assert!(bitmap.get(7));
+
+        assert!(bitmap.get(8));
+        assert!(!bitmap.get(9));
+        assert!(!bitmap.get(10));
+        assert!(bitmap.get(11));
+        assert!(!bitmap.get(12));
+        assert!(!bitmap.get(13));
+        assert!(bitmap.get(14));
+        assert!(!bitmap.get(15));
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn bytes_static_lsb() {
+        use bytes::Bytes;
+        let bitmap =
+            Bitmap::<Bytes, MinimumRequiredStrategy, LSB>::from_bytes(Bytes::from_static(&[
+                0b0001_0001,
+                0b1001_0010,
+            ]));
+
+        assert!(bitmap.get(0));
+        assert!(!bitmap.get(1));
+        assert!(!bitmap.get(2));
+        assert!(!bitmap.get(3));
+        assert!(bitmap.get(4));
+        assert!(!bitmap.get(5));
+        assert!(!bitmap.get(6));
+        assert!(!bitmap.get(7));
+
+        assert!(!bitmap.get(8));
+        assert!(bitmap.get(9));
+        assert!(!bitmap.get(10));
+        assert!(!bitmap.get(11));
+        assert!(bitmap.get(12));
+        assert!(!bitmap.get(13));
+        assert!(!bitmap.get(14));
+        assert!(bitmap.get(15));
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn bytes_static_msb() {
+        use bytes::Bytes;
+        let bitmap =
+            Bitmap::<Bytes, MinimumRequiredStrategy, MSB>::from_bytes(Bytes::from_static(&[
+                0b0001_0001,
+                0b1001_0010,
+            ]));
+
+        assert!(!bitmap.get(0));
+        assert!(!bitmap.get(1));
+        assert!(!bitmap.get(2));
+        assert!(bitmap.get(3));
+        assert!(!bitmap.get(4));
+        assert!(!bitmap.get(5));
+        assert!(!bitmap.get(6));
+        assert!(bitmap.get(7));
+
+        assert!(bitmap.get(8));
+        assert!(!bitmap.get(9));
+        assert!(!bitmap.get(10));
+        assert!(bitmap.get(11));
+        assert!(!bitmap.get(12));
+        assert!(!bitmap.get(13));
+        assert!(bitmap.get(14));
+        assert!(!bitmap.get(15));
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn bytes_mut_minimum_lsb() {
+        use bytes::BytesMut;
+        let mut bitmap = Bitmap::<BytesMut, MinimumRequiredStrategy, LSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b0000_0001,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0001_0000,
+            ]
+        );
+    }
+
+    #[cfg(feature = "bytes")]
+    #[test]
+    fn bytes_mut_minimum_msb() {
+        use bytes::BytesMut;
+        let mut bitmap = Bitmap::<BytesMut, MinimumRequiredStrategy, MSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b1000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_1000,
+            ]
+        );
+    }
+
+    #[cfg(feature = "smallvec")]
+    #[test]
+    fn smallvec_minimum_lsb() {
+        use smallvec::SmallVec;
+        let mut bitmap = Bitmap::<SmallVec<[u8; 4]>, MinimumRequiredStrategy, LSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b0000_0001,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0001_0000,
+            ]
+        );
+    }
+
+    #[cfg(feature = "smallvec")]
+    #[test]
+    fn smallvec_minimum_msb() {
+        use smallvec::SmallVec;
+        let mut bitmap = Bitmap::<SmallVec<[u8; 4]>, MinimumRequiredStrategy, MSB>::default();
+
+        bitmap.set(0, true);
+        assert_eq!(bitmap.as_bytes().len(), 1);
+        assert!(bitmap.get(0));
+
+        bitmap.set(15, true);
+        assert_eq!(bitmap.as_bytes().len(), 2);
+        assert!(bitmap.get(15));
+
+        bitmap.set(24, true);
+        assert_eq!(bitmap.as_bytes().len(), 4);
+        assert!(bitmap.get(24));
+
+        bitmap.set(132, true);
+        assert_eq!(bitmap.as_bytes().len(), 17);
+        assert!(bitmap.get(132));
+
+        assert_eq!(
+            bitmap.as_bytes(),
+            &[
+                0b1000_0000,
+                0b0000_0001,
+                0b0000_0000,
+                0b1000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_0000,
+                0b0000_1000,
+            ]
         );
     }
 }
