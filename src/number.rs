@@ -15,7 +15,6 @@ pub trait Number:
     + Eq
     + Ord
     + Binary
-    + std::fmt::Debug
 {
     const BITS_COUNT: usize;
     const BYTES_COUNT: usize;
