@@ -1,10 +1,7 @@
-use std::{
-    error::Error as StdError,
-    fmt::{Display, Formatter},
-    ops::Range,
-};
+use std::ops::Range;
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("index '{actual_idx}' out of bounds {bounds:?}")]
 pub struct OutOfBoundsError {
     actual_idx: usize,
     bounds: Range<usize>,
@@ -17,19 +14,8 @@ impl OutOfBoundsError {
     }
 }
 
-impl Display for OutOfBoundsError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "index '{}' out of bounds {:?}",
-            self.actual_idx, self.bounds,
-        )
-    }
-}
-
-impl StdError for OutOfBoundsError {}
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("the size of the bitmap cannot be increased: {details}")]
 pub struct ResizeError {
     details: String,
 }
@@ -46,14 +32,54 @@ impl ResizeError {
     }
 }
 
-impl Display for ResizeError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "the size of the bitmap cannot be increased: {}",
-            self.details
-        )
+#[derive(Debug, thiserror::Error)]
+#[error("creation of a container with the specified number of slots failed: {details}")]
+pub struct WithSlotsError {
+    details: String,
+}
+
+impl WithSlotsError {
+    /// Creates new error with details.
+    pub fn new<C>(details: C) -> Self
+    where
+        C: Into<String>,
+    {
+        Self {
+            details: details.into(),
+        }
     }
 }
 
-impl StdError for ResizeError {}
+#[derive(Debug, thiserror::Error)]
+#[error("container size is small: {details}")]
+pub struct SmallContainerSizeError {
+    details: String,
+}
+
+impl SmallContainerSizeError {
+    /// Creates new error with details.
+    pub fn new<C>(details: C) -> Self
+    where
+        C: Into<String>,
+    {
+        Self {
+            details: details.into(),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IntersectionError {
+    #[error(transparent)]
+    SmallContainerSizeError(#[from] SmallContainerSizeError),
+    #[error(transparent)]
+    WithSlotsError(#[from] WithSlotsError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UnionError {
+    #[error(transparent)]
+    SmallContainerSizeError(#[from] SmallContainerSizeError),
+    #[error(transparent)]
+    WithSlotsError(#[from] WithSlotsError),
+}

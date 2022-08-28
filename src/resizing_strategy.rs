@@ -88,31 +88,47 @@ impl ResizingStrategy for FixedStrategy {
     }
 }
 
-/// Strategy that doesn't support resizing.
+/// Increases the size of the container until the limit is reached.
 ///
 /// Example:
+/// ```no_run
+/// use bitmac::resizing_strategy::{ResizingStrategy, MinimumRequiredStrategy, LimitStrategy, MinimumRequiredLength};
+/// let mut s = LimitStrategy{
+///     strategy: MinimumRequiredStrategy,
+///     limit: 5,
+/// };
+/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 0, 0).unwrap().value(), 1);
+/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 0, 10).unwrap().value(), 2);
+/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 0, 23).unwrap().value(), 3);
+/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 3, 24).unwrap().value(), 4);
+/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(5), 3, 35).unwrap().value(), 5);
+/// assert!(s.try_resize(MinimumRequiredLength::new_unchecked(6), 3, 47).is_err());
 /// ```
-/// use bitmac::resizing_strategy::{ResizingStrategy, StaticStrategy, MinimumRequiredLength};
-/// let mut s = StaticStrategy;
-/// assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 1, 0).unwrap().value(), 1);
-/// assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 10).is_err());
-/// ```
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StaticStrategy;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LimitStrategy<S> {
+    pub strategy: S,
+    pub limit: usize,
+}
 
-impl ResizingStrategy for StaticStrategy {
+impl<S> ResizingStrategy for LimitStrategy<S>
+where
+    S: ResizingStrategy,
+{
     fn try_resize(
         &mut self,
         min_req_len: MinimumRequiredLength,
         old_len: usize,
-        _bit_idx: usize,
+        bit_idx: usize,
     ) -> Result<FinalLength, ResizeError> {
-        if min_req_len.value() != old_len {
-            Err(ResizeError::new(
-                "static resizing strategy doesn't support resizing",
-            ))
+        let final_length = self.strategy.try_resize(min_req_len, old_len, bit_idx)?;
+        if final_length.value() <= self.limit {
+            Ok(final_length)
         } else {
-            Ok(min_req_len.finalize())
+            Err(ResizeError::new(format!(
+                "the new size {} is over the limit {}",
+                final_length.value(),
+                self.limit
+            )))
         }
     }
 }
@@ -226,28 +242,34 @@ mod tests {
 
     #[test]
     #[rustfmt::skip]
-    fn test_static() {
-        let mut s = StaticStrategy;
+    fn test_limit() {
+        let mut s = LimitStrategy{ strategy: MinimumRequiredStrategy, limit: 3 };
 
         assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 1, 0).unwrap().value(), 1);
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 2, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 3, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 4, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 5, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 2, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 3, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 4, 0).unwrap().value(), 1);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(1), 5, 0).unwrap().value(), 1);
 
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 1, 0).unwrap().value(), 2);
         assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 2, 0).unwrap().value(), 2);
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 3, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 4, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 5, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 3, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 4, 0).unwrap().value(), 2);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(2), 5, 0).unwrap().value(), 2);
 
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 1, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 2, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 1, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 2, 0).unwrap().value(), 3);
         assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 3, 0).unwrap().value(), 3);
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 4, 0).is_err());
-        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 5, 0).is_err());
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 4, 0).unwrap().value(), 3);
+        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(3), 5, 0).unwrap().value(), 3);
+
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 1, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 2, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 3, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 4, 0).is_err());
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(4), 5, 0).is_err());
 
         assert!(s.try_resize(MinimumRequiredLength::new_unchecked(21), 5, 0).is_err());
-        assert_eq!(s.try_resize(MinimumRequiredLength::new_unchecked(25), 25, 0).unwrap().value(), 25);
+        assert!(s.try_resize(MinimumRequiredLength::new_unchecked(25), 5, 0).is_err());
     }
 }
