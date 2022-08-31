@@ -7,38 +7,33 @@ This library provides implementation of bitmap with custom bit accessing and res
 
 ```toml
 [dependencies]
-bitmac = "0.2"
+bitmac = "0.3"
 ```
 
 ### Features
-- `bytes` - implemented trait `ContainerMut` for `BytesMut`
-- `smallvec` - implemented trait `ContainerMut` for `SmallVec`
+
+| Feature    | Description                                                                                                                                  |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `bytes`    | to implement `ContainerRead` trait for `Bytes` and `ContainerRead`, `ContainerWrite`, `Resizable` and `TryWithSlots` traits for [`BytesMut`] |
+| `smallvec` | to implement `ContainerRead`, `ContainerWrite`, `Resizable` and `TryWithSlots` traits for `SmallVec`                                         |
 
 ### Example
 ```rust
-use bitmac::{Bitmap, MinimumRequiredStrategy, LSB};
+use bitmac::{StaticBitmap, LSB, Intersection, Union};
 
 fn main() {
-    let mut bitmap = Bitmap::<Vec<u8>, MinimumRequiredStrategy, LSB>::default();
+    let mut bitmap = StaticBitmap::<u16, LSB>::default();
 
-    assert_eq!(bitmap.as_bytes().len(), 0);
+    assert!(!bitmap.get(0));
+    assert!(!bitmap.get(7));
     
     bitmap.set(0, true);
     bitmap.set(7, true);
-    assert_eq!(bitmap.as_bytes().len(), 1);
-    
-    bitmap.set(15, true);
-    assert_eq!(bitmap.as_bytes().len(), 2);
-
     assert!(bitmap.get(0));
     assert!(bitmap.get(7));
-    assert!(bitmap.get(15));
-
-    assert!(!bitmap.get(1));
-    assert!(!bitmap.get(8));
-    assert!(!bitmap.get(300));
-
-    assert_eq!(bitmap.as_bytes().len(), 2);
+    
+    assert_eq!(bitmap.intersection_len(0b0000_1111_0000_0001u16), 1);
+    assert_eq!(bitmap.union_len(0b0000_1111_0000_0001u16), 6);
 }
 ```
 
