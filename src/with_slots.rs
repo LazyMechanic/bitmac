@@ -1,16 +1,19 @@
-use crate::{number::Number, WithSlotsError};
+use crate::{number::Number, resizable::Resizable, WithSlotsError};
 
 pub trait TryWithSlots: Sized {
     /// Creates new container with specified slots number.
     fn try_with_slots(len: usize) -> Result<Self, WithSlotsError>;
 }
 
-impl<N> TryWithSlots for Vec<N>
+impl<T, N> TryWithSlots for T
 where
+    T: Default + Resizable<Slot = N> + Sized,
     N: Number,
 {
     fn try_with_slots(len: usize) -> Result<Self, WithSlotsError> {
-        Ok(vec![N::ZERO; len])
+        let mut this = Self::default();
+        this.resize(len, N::ZERO);
+        Ok(this)
     }
 }
 
@@ -27,24 +30,6 @@ where
                 LEN, len
             )))
         }
-    }
-}
-
-#[cfg(feature = "smallvec")]
-impl<A, N> TryWithSlots for smallvec::SmallVec<A>
-where
-    A: smallvec::Array<Item = N>,
-    N: Number,
-{
-    fn try_with_slots(len: usize) -> Result<Self, WithSlotsError> {
-        Ok(smallvec::smallvec![N::ZERO; len])
-    }
-}
-
-#[cfg(feature = "bytes")]
-impl TryWithSlots for bytes::BytesMut {
-    fn try_with_slots(len: usize) -> Result<Self, WithSlotsError> {
-        Ok(bytes::BytesMut::zeroed(len))
     }
 }
 

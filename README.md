@@ -12,10 +12,10 @@ bitmac = "0.3"
 
 ### Features
 
-| Feature    | Description                                                                                                                                  |
-|------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `bytes`    | to implement `ContainerRead` trait for `Bytes` and `ContainerRead`, `ContainerWrite`, `Resizable` and `TryWithSlots` traits for [`BytesMut`] |
-| `smallvec` | to implement `ContainerRead`, `ContainerWrite`, `Resizable` and `TryWithSlots` traits for `SmallVec`                                         |
+| Feature    | Description                                                                                                                   |
+|------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `bytes`    | to implement `ContainerRead` trait for `Bytes` and `ContainerRead`, `ContainerWrite`, and `Resizable` traits for [`BytesMut`] |
+| `smallvec` | to implement `ContainerRead`, `ContainerWrite` and `Resizable` traits for `SmallVec`                                          |
 
 ### Example
 ```rust

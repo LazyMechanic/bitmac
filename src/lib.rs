@@ -4,10 +4,10 @@
 //!
 //! ## Features
 //!
-//! | Feature    | Description                                                                                                                                              |
-//! |------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-//! | `bytes`    | to implement [`ContainerRead`] trait for [`Bytes`] and [`ContainerRead`], [`ContainerWrite`], [`Resizable`] and [`TryWithSlots`] traits for [`BytesMut`] |
-//! | `smallvec` | to implement [`ContainerRead`], [`ContainerWrite`], [`Resizable`] and [`TryWithSlots`] traits for [`SmallVec`]                                           |
+//! | Feature    | Description                                                                                                                            |
+//! |------------|----------------------------------------------------------------------------------------------------------------------------------------|
+//! | `bytes`    | to implement [`ContainerRead`] trait for [`Bytes`] and [`ContainerRead`], [`ContainerWrite`] and [`Resizable`] traits for [`BytesMut`] |
+//! | `smallvec` | to implement [`ContainerRead`], [`ContainerWrite`] and [`Resizable`] traits for [`SmallVec`]                                           |
 //!
 //! ## BitAccess
 //!
@@ -172,6 +172,12 @@
 //! - [`FixedStrategy`]
 //! - [`LimitStrategy`]
 //! - [`ForceGrowStrategy`]
+//!
+//! ### TryWithSlots
+//!
+//! [`TryWithSlots`] is a trait with which you can create a container with a known size.
+//!
+//! The trait is already implemented for every type that implements `Default` + `Resizable<Slot: Number>`.
 //!
 //! [`GrowStrategy`]: crate::grow_strategy::GrowStrategy
 //! [`MinimumRequiredStrategy`]: crate::grow_strategy::MinimumRequiredStrategy
