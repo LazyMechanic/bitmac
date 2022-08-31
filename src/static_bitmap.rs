@@ -93,6 +93,24 @@ where
             phantom: Default::default(),
         }
     }
+
+    /// Returns number of ones in the bitmap.
+    pub fn count_ones(&self) -> usize {
+        let mut res = 0;
+        for v in self.iter() {
+            res += v.count_ones() as usize;
+        }
+        res
+    }
+
+    /// Returns number of zeros in the bitmap.
+    pub fn count_zeros(&self) -> usize {
+        let mut res = 0;
+        for v in self.iter() {
+            res += v.count_zeros() as usize;
+        }
+        res
+    }
 }
 
 impl<D, B> StaticBitmap<D, B> {
