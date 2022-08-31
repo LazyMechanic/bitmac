@@ -5,14 +5,75 @@ use std::{
 
 use crate::{
     container::{ContainerRead, ContainerWrite},
-    intersection::{try_intersection_impl, try_intersection_in_impl, Intersection, IntersectionIn},
+    intersection::{
+        intersection_len_impl, try_intersection_impl, try_intersection_in_impl, Intersection,
+    },
     iter::{IntoIter, Iter},
     number::Number,
-    union::{try_union_impl, try_union_in_impl, Union, UnionIn},
+    union::{try_union_impl, try_union_in_impl, union_len_impl, Union},
     with_slots::TryWithSlots,
     BitAccess, IntersectionError, OutOfBoundsError, UnionError, WithSlotsError,
 };
 
+/// A bitmap that cannot be resized.
+///
+/// Any structure that implements the [`ContainerRead`] (for read-only access) and [`ContainerWrite`]
+/// (for mutable access) traits can be a container of bitmap (e.g. `[T; N]`, `&[T]`, `Vec<T>`, etc.).
+///
+/// Usage example:
+/// ```
+/// # fn main() {
+/// use bitmac::{StaticBitmap, LSB};
+///
+/// // You can directly check every single bit
+/// let bitmap = StaticBitmap::<_, LSB>::new([0b0000_0001u8, 0b0000_1000]);
+/// assert!(bitmap.get(0));
+/// assert!(bitmap.get(11));
+/// assert!(!bitmap.get(13));
+/// // Out of bounds bits always return false
+/// assert!(!bitmap.get(128));
+///
+/// // You can iterate over bits
+/// let bitmap = StaticBitmap::<_, LSB>::new([0b0000_1001u8, 0b0000_1000]);
+/// let mut iter = bitmap.iter().by_bits().enumerate();
+/// assert_eq!(iter.next(), Some((0, true)));
+/// assert_eq!(iter.next(), Some((1, false)));
+/// assert_eq!(iter.next(), Some((2, false)));
+/// assert_eq!(iter.next(), Some((3, true)));
+/// assert_eq!(iter.next(), Some((4, false)));
+///
+/// // You can check multiple bits at the same time through the intersection
+/// use bitmac::Intersection;
+/// let bitmap = StaticBitmap::<_, LSB>::new([0b0000_1001u8, 0b0000_1000]);
+/// // .. by creating specific new container for result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// assert_eq!(bitmap.intersection::<[u8; 2]>(&test), test);
+/// // .. by using preallocated container for result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// let mut result = [0u8; 2];
+/// bitmap.intersection_in(&test, &mut result);
+/// assert_eq!(result, test);
+/// // .. by comparing length of difference that is equivalent to count of ones (bits) in result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// assert_eq!(bitmap.intersection_len(&test), test.iter().fold(0, |acc, &v| acc + v.count_ones() as usize));
+///
+/// // You can directly change every single bit
+/// let mut bitmap = StaticBitmap::<_, LSB>::new([0b0000_1001u8, 0b0001_1000]);
+/// assert!(bitmap.get(0));
+/// assert!(bitmap.get(3));
+/// assert!(bitmap.get(11));
+/// assert!(bitmap.get(12));
+/// assert!(!bitmap.get(13));
+/// assert!(!bitmap.get(128));
+/// bitmap.set(12, false);
+/// assert!(!bitmap.get(12));
+/// bitmap.set(13, true);
+/// assert!(bitmap.get(13));
+/// // Out of bounds bits return error
+/// assert!(bitmap.try_set(128, true).is_err());
+/// assert!(!bitmap.get(128));
+/// # }
+/// ```
 #[derive(Default, Clone, Eq, PartialEq)]
 pub struct StaticBitmap<D, B> {
     data: D,
@@ -25,6 +86,7 @@ where
     N: Number,
     B: BitAccess,
 {
+    /// Creates new bitmap from container.
     pub fn new(data: D) -> Self {
         Self {
             data,
@@ -34,6 +96,7 @@ where
 }
 
 impl<D, B> StaticBitmap<D, B> {
+    /// Converts bitmap into inner container.
     pub fn into_inner(self) -> D {
         self.data
     }
@@ -44,8 +107,26 @@ where
     D: ContainerRead<B>,
     B: BitAccess,
 {
+    /// Gets single bit state.
+    ///
+    /// Usage example:
+    /// ```
+    /// use bitmac::{StaticBitmap, LSB};
+    ///
+    /// let bitmap = StaticBitmap::<_, LSB>::new([0b0000_0001u8, 0b0000_1000]);
+    /// assert!(bitmap.get(0));
+    /// assert!(bitmap.get(11));
+    /// assert!(!bitmap.get(13));
+    /// // Out of bounds bits always return false
+    /// assert!(!bitmap.get(128));
+    /// ```
     pub fn get(&self, idx: usize) -> bool {
         self.data.get_bit(idx)
+    }
+
+    /// Returns iterator over slots.
+    pub fn iter(&self) -> Iter<'_, D, B> {
+        Iter::new(&self.data)
     }
 }
 
@@ -54,10 +135,46 @@ where
     D: ContainerWrite<B>,
     B: BitAccess,
 {
+    /// Sets new state for a single bit.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if `idx` is out of bounds.
+    /// See non-panic function [`try_set`].
+    ///
+    /// ## Usage example:
+    /// ```
+    /// use bitmac::{StaticBitmap, LSB};
+    ///
+    /// let mut bitmap = StaticBitmap::<_, LSB>::new([0b0000_1001u8, 0b0001_1000]);
+    /// bitmap.set(12, false);
+    /// assert!(!bitmap.get(12));
+    /// bitmap.set(13, true);
+    /// assert!(bitmap.get(13));
+    /// ```
+    ///
+    /// [`try_set`]: crate::static_bitmap::StaticBitmap::try_set
     pub fn set(&mut self, idx: usize, val: bool) {
-        let _ = self.try_set(idx, val);
+        self.try_set(idx, val).unwrap();
     }
 
+    /// Sets new state for a single bit.
+    ///
+    /// Returns `Err(_)` if `idx` is out of bounds.
+    ///
+    /// ## Usage example:
+    /// ```
+    /// use bitmac::{StaticBitmap, LSB};
+    ///
+    /// let mut bitmap = StaticBitmap::<_, LSB>::new([0b0000_1001u8, 0b0001_1000]);
+    /// assert!(bitmap.try_set(12, true).is_ok());
+    /// assert!(bitmap.get(12));
+    /// assert!(bitmap.try_set(12, false).is_ok());
+    /// assert!(!bitmap.get(12));
+    /// // Out of bounds bits return error
+    /// assert!(bitmap.try_set(128, true).is_err());
+    /// assert!(!bitmap.get(128));
+    /// ```
     pub fn try_set(&mut self, idx: usize, val: bool) -> Result<(), OutOfBoundsError> {
         self.data.try_set_bit(idx, val)
     }
@@ -169,11 +286,11 @@ where
     type IntoIter = Iter<'a, D, B>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(&self.data)
+        self.iter()
     }
 }
 
-impl<D, B, Rhs, N> IntersectionIn<Rhs, N, B> for StaticBitmap<D, B>
+impl<D, B, Rhs, N> Intersection<Rhs, N, B> for StaticBitmap<D, B>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
@@ -193,15 +310,7 @@ where
     {
         try_intersection_in_impl(&self.data, rhs, dst)
     }
-}
 
-impl<D, B, Rhs, N> Intersection<Rhs, N, B> for StaticBitmap<D, B>
-where
-    D: ContainerRead<B, Slot = N>,
-    B: BitAccess,
-    Rhs: ContainerRead<B, Slot = N>,
-    N: Number,
-{
     fn intersection<Dst>(&self, rhs: &Rhs) -> Dst
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
@@ -215,9 +324,13 @@ where
     {
         try_intersection_impl(&self.data, rhs)
     }
+
+    fn intersection_len(&self, rhs: &Rhs) -> usize {
+        intersection_len_impl(&self.data, rhs)
+    }
 }
 
-impl<D, B, Rhs, N> UnionIn<Rhs, N, B> for StaticBitmap<D, B>
+impl<D, B, Rhs, N> Union<Rhs, N, B> for StaticBitmap<D, B>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
@@ -237,15 +350,7 @@ where
     {
         try_union_in_impl(&self.data, rhs, dst)
     }
-}
 
-impl<D, B, Rhs, N> Union<Rhs, N, B> for StaticBitmap<D, B>
-where
-    D: ContainerRead<B, Slot = N>,
-    B: BitAccess,
-    Rhs: ContainerRead<B, Slot = N>,
-    N: Number,
-{
     fn union<Dst>(&self, rhs: &Rhs) -> Dst
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
@@ -258,6 +363,10 @@ where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
     {
         try_union_impl(&self.data, rhs)
+    }
+
+    fn union_len(&self, rhs: &Rhs) -> usize {
+        union_len_impl(&self.data, rhs)
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::number::Number;
 
-// Trait provides functions for accessing to bit in byte.
+// Trait that provides functions for accessing single bit in number.
 pub trait BitAccess: private::Sealed {
     /// Changes bit state.
     fn set<N>(num: N, bit_idx: usize, state: bool) -> N
@@ -13,11 +13,11 @@ pub trait BitAccess: private::Sealed {
         N: Number;
 }
 
-/// Most Significant Bit
+/// *Most Significant Bit* is a rule for bit accessing when 0th bit is the most significant bit (the last bit in order).
 ///
-/// Example:
+/// For example:
 /// ```
-/// use bitmac::bit_access::{MSB, BitAccess};
+/// use bitmac::{MSB, BitAccess};
 /// assert_eq!(MSB::set(0b0000_0000u8, 0, true), 0b1000_0000u8);
 /// ```
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
@@ -49,11 +49,11 @@ impl BitAccess for MSB {
     }
 }
 
-/// Least Significant Bit
+/// *Least Significant Bit* is a rule for bit accessing when 0th bit is the least significant bit (the first bit in order).
 ///
-/// Example:
+/// For example:
 /// ```
-/// use bitmac::bit_access::{LSB, BitAccess};
+/// use bitmac::{LSB, BitAccess};
 /// assert_eq!(LSB::set(0b0000_0000u8, 0, true), 0b0000_0001u8);
 /// ```
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]

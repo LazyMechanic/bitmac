@@ -11,10 +11,18 @@ where
 {
     type Slot: Number;
 
+    /// Gets value of stored slot.
     fn get_slot(&self, idx: usize) -> Self::Slot;
 
+    /// Gets number of stored slots.
     fn slots_count(&self) -> usize;
 
+    /// Gets bit state.
+    ///
+    /// You usually don't need to override this method yourself, but you can do it
+    /// for performance reasons. Method is hidden because you don't need to call it
+    /// directly. Instead, you should use one of the bitmap implementations.
+    #[doc(hidden)]
     fn get_bit(&self, idx: usize) -> bool {
         // If idx out of bounds
         if idx >= self.bits_count() {
@@ -27,33 +35,47 @@ where
         B::get(self.get_slot(slot_idx), bit_idx)
     }
 
+    /// Gets max number of bits.
     #[inline]
     fn bits_count(&self) -> usize {
         self.slots_count() * <Self::Slot as Number>::BITS_COUNT
     }
 }
+
 pub trait ContainerWrite<B>: ContainerRead<B>
 where
     B: BitAccess,
 {
+    /// Gets mutable reference to stored slot.
     fn get_mut_slot(&mut self, idx: usize) -> &mut Self::Slot;
 
+    /// Sets bit state with bounds check.
+    ///
+    /// You usually don't need to override this method yourself, but you can do it
+    /// for performance reasons. Method is hidden because you don't need to call it
+    /// directly. Instead, you should use one of the bitmap implementations.
+    #[doc(hidden)]
     fn try_set_bit(&mut self, idx: usize, val: bool) -> Result<(), OutOfBoundsError> {
         if idx >= self.bits_count() {
             return Err(OutOfBoundsError::new(idx, 0..self.bits_count()));
         }
 
+        self.set_bit_unchecked(idx, val);
+        Ok(())
+    }
+
+    /// Sets bit state without bounds check.
+    ///
+    /// You usually don't need to override this method yourself, but you can do it
+    /// for performance reasons. Method is hidden because you don't need to call it
+    /// directly. Instead, you should use one of the bitmap implementations.
+    #[doc(hidden)]
+    fn set_bit_unchecked(&mut self, idx: usize, val: bool) {
         let slot_idx = idx / <Self::Slot as Number>::BITS_COUNT;
         let bit_idx = idx - slot_idx * <Self::Slot as Number>::BITS_COUNT;
 
         let slot = self.get_mut_slot(slot_idx);
         *slot = B::set(*slot, bit_idx, val);
-        Ok(())
-    }
-
-    #[inline]
-    fn set_bit(&mut self, idx: usize, val: bool) {
-        let _ = self.try_set_bit(idx, val);
     }
 }
 
@@ -307,11 +329,16 @@ macro_rules! container_impl {
 
             fn try_set_bit(&mut self, idx: usize, val: bool) -> Result<(), OutOfBoundsError> {
                 if idx < <Self as Number>::BITS_COUNT {
-                    *self = B::set(*self, idx, val);
+                    <Self as ContainerWrite<B>>::set_bit_unchecked(self, idx, val);
                     Ok(())
                 } else {
                     Err(OutOfBoundsError::new(idx, 0..<Self as Number>::BITS_COUNT))
                 }
+            }
+
+            #[inline]
+            fn set_bit_unchecked(&mut self, idx: usize, val: bool) {
+                *self = B::set(*self, idx, val);
             }
         }
     };

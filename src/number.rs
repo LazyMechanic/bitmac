@@ -23,6 +23,9 @@ pub trait Number:
     const MAX: Self;
     const MIN: Self;
     const BYTE_MASK: Self;
+
+    fn count_ones(self) -> u32;
+    fn count_zeros(self) -> u32;
 }
 
 macro_rules! number_impl {
@@ -35,6 +38,16 @@ macro_rules! number_impl {
             const MAX: Self = <$ty>::MAX;
             const MIN: Self = <$ty>::MIN;
             const BYTE_MASK: Self = 0b1111_1111;
+
+            #[inline]
+            fn count_ones(self) -> u32 {
+                <$ty>::count_ones(self)
+            }
+
+            #[inline]
+            fn count_zeros(self) -> u32 {
+                <$ty>::count_zeros(self)
+            }
         }
     };
 }

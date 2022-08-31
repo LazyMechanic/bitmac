@@ -1,6 +1,7 @@
 use crate::{number::Number, WithSlotsError};
 
 pub trait TryWithSlots: Sized {
+    /// Creates new container with specified slots number.
     fn try_with_slots(len: usize) -> Result<Self, WithSlotsError>;
 }
 

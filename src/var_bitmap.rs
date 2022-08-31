@@ -5,16 +5,80 @@ use std::{
 
 use crate::{
     container::{ContainerRead, ContainerWrite},
-    intersection::{try_intersection_impl, try_intersection_in_impl, Intersection, IntersectionIn},
+    grow_strategy::{FinalLength, GrowStrategy, MinimumRequiredLength},
+    intersection::{
+        intersection_len_impl, try_intersection_impl, try_intersection_in_impl, Intersection,
+    },
     iter::{IntoIter, Iter},
     number::Number,
     resizable::Resizable,
-    resizing_strategy::{FinalLength, MinimumRequiredLength, ResizingStrategy},
-    union::{try_union_impl, try_union_in_impl, Union, UnionIn},
+    union::{try_union_impl, try_union_in_impl, union_len_impl, Union},
     with_slots::TryWithSlots,
     BitAccess, IntersectionError, ResizeError, StaticBitmap, UnionError,
 };
 
+/// A bitmap that can be resized by custom resizing strategy.
+///
+/// Any structure that implements the [`ContainerRead`] (for read-only access) and
+/// [`ContainerWrite`] + [`Resizable`] (for mutable access) traits can be a container of bitmap (e.g. `Vec<T>`).
+///
+/// It has the same interface as `StaticBitmap` except that mutable access requires resizable container.
+/// Container tries to grow if the changing bit is out of bounds.
+///
+/// Usage example:
+/// ```
+/// # fn main() {
+/// use bitmac::{VarBitmap, LSB, MinimumRequiredStrategy};
+///
+/// // You can directly check every single bit
+/// let bitmap = VarBitmap::<_, LSB, MinimumRequiredStrategy>::from_container(vec![0b0000_0001u8]);
+/// assert!(bitmap.get(0));
+/// assert!(!bitmap.get(11));
+/// assert!(!bitmap.get(13));
+///
+/// // You can iterate over bits
+/// let bitmap = VarBitmap::<_, LSB, MinimumRequiredStrategy>::from_container(vec![0b0000_1001u8, 0b0000_1000]);
+/// let mut iter = bitmap.iter().by_bits().enumerate();
+/// assert_eq!(iter.next(), Some((0, true)));
+/// assert_eq!(iter.next(), Some((1, false)));
+/// assert_eq!(iter.next(), Some((2, false)));
+/// assert_eq!(iter.next(), Some((3, true)));
+/// assert_eq!(iter.next(), Some((4, false)));
+///
+/// // You can check multiple bits at the same time through the intersection
+/// use bitmac::Intersection;
+/// let bitmap = VarBitmap::<_, LSB, MinimumRequiredStrategy>::from_container(vec![0b0000_1001u8, 0b0000_1000]);
+/// // .. by creating specific new container for result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// assert_eq!(bitmap.intersection::<[u8; 2]>(&test), test);
+/// // .. by using preallocated container for result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// let mut result = [0u8; 2];
+/// bitmap.intersection_in(&test, &mut result);
+/// assert_eq!(result, test);
+/// // .. by comparing length of difference that is equivalent to count of ones (bits) in result
+/// let test = [0b0000_1001u8, 0b0000_0000];
+/// assert_eq!(bitmap.intersection_len(&test), test.iter().fold(0, |acc, &v| acc + v.count_ones() as usize));
+///
+/// // You can directly change every bit
+/// let mut bitmap = VarBitmap::<_, LSB, MinimumRequiredStrategy>::from_container(vec![0b0000_1001u8, 0b0001_1000]);
+/// assert!(bitmap.get(0));
+/// assert!(bitmap.get(3));
+/// assert!(bitmap.get(11));
+/// assert!(bitmap.get(12));
+/// assert!(!bitmap.get(13));
+/// assert!(!bitmap.get(128));
+/// bitmap.set(12, false);
+/// assert!(!bitmap.get(12));
+/// bitmap.set(13, true);
+/// assert!(bitmap.get(13));
+/// // If you change the bit exceeding container's length and new bit state is `1` (`true`)
+/// // then the container will automatically grow
+/// bitmap.set(127, true);
+/// assert!(bitmap.get(127));
+/// assert_eq!(bitmap.as_ref().len(), 16);
+/// # }
+/// ```
 #[derive(Default, Clone, Eq, PartialEq)]
 pub struct VarBitmap<D, B, S> {
     data: D,
@@ -26,9 +90,10 @@ impl<D, B, S, N> VarBitmap<D, B, S>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
-    S: ResizingStrategy,
+    S: GrowStrategy,
     N: Number,
 {
+    /// Creates new bitmap from container with specified strategy.
     pub fn new(data: D, resizing_strategy: S) -> Self {
         Self {
             data,
@@ -42,9 +107,10 @@ impl<D, B, S, N> VarBitmap<D, B, S>
 where
     D: ContainerRead<B, Slot = N> + Default,
     B: BitAccess,
-    S: ResizingStrategy,
+    S: GrowStrategy,
     N: Number,
 {
+    /// Creates default bitmap with specified strategy.
     pub fn with_resizing_strategy(resizing_strategy: S) -> Self {
         Self {
             data: Default::default(),
@@ -58,9 +124,10 @@ impl<D, B, S, N> VarBitmap<D, B, S>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
-    S: ResizingStrategy + Default,
+    S: GrowStrategy + Default,
     N: Number,
 {
+    /// Creates new bitmap from container with default strategy.
     pub fn from_container(data: D) -> Self {
         Self {
             data,
@@ -71,6 +138,7 @@ where
 }
 
 impl<D, B, S> VarBitmap<D, B, S> {
+    /// Converts bitmap into inner container.
     pub fn into_inner(self) -> D {
         self.data
     }
@@ -82,6 +150,7 @@ where
     N: Number,
     B: BitAccess,
 {
+    /// Represents bitmap as static bitmap over `&D` container.
     pub fn as_static<'a>(&'a self) -> StaticBitmap<&'a D, B>
     where
         &'a D: ContainerRead<B>,
@@ -89,64 +158,117 @@ where
         StaticBitmap::from(&self.data)
     }
 
+    /// Converts bitmap into static bitmap.
     pub fn into_static(self) -> StaticBitmap<D, B> {
         StaticBitmap::from(self.data)
     }
 }
 
-impl<D, B, S, N> VarBitmap<D, B, S>
+impl<D, B, S> VarBitmap<D, B, S>
 where
-    D: ContainerRead<B, Slot = N>,
-    N: Number,
+    D: ContainerRead<B>,
     B: BitAccess,
 {
+    /// Gets single bit state.
+    ///
+    /// Usage example:
+    /// ```
+    /// use bitmac::{StaticBitmap, LSB};
+    ///
+    /// let bitmap = StaticBitmap::<_, LSB>::new([0b0000_0001u8, 0b0000_1000]);
+    /// assert!(bitmap.get(0));
+    /// assert!(bitmap.get(11));
+    /// assert!(!bitmap.get(13));
+    /// // Out of bounds bits always returns false
+    /// assert!(!bitmap.get(128));
+    /// ```
     pub fn get(&self, idx: usize) -> bool {
         self.data.get_bit(idx)
+    }
+
+    /// Returns iterator over slots.
+    pub fn iter(&self) -> Iter<'_, D, B> {
+        Iter::new(&self.data)
     }
 }
 
 impl<D, B, S, N> VarBitmap<D, B, S>
 where
-    D: ContainerWrite<B, Slot = N> + Resizable<Item = N>,
+    D: ContainerWrite<B, Slot = N> + Resizable<Slot = N>,
     N: Number,
-    S: ResizingStrategy,
+    S: GrowStrategy,
     B: BitAccess,
 {
+    /// Sets new state for a single bit.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if resizing fails.
+    /// See non-panic function [`try_set`].
+    ///
+    /// ## Usage example:
+    /// ```
+    /// use bitmac::{VarBitmap, LSB, MinimumRequiredStrategy, LimitStrategy};
+    ///
+    /// let mut bitmap = VarBitmap::<_, LSB, LimitStrategy<MinimumRequiredStrategy>>::new(
+    ///     vec![0u8; 1], LimitStrategy{ strategy: Default::default(), limit: 3 },
+    /// );
+    /// bitmap.set(6, true);
+    /// assert!(bitmap.get(6));
+    /// bitmap.set(13, true);
+    /// assert!(bitmap.get(13));
+    /// bitmap.set(13, false);
+    /// assert!(!bitmap.get(13));
+    /// // bitmap.set(128, false); <-- Panics
+    /// ```
+    ///
+    /// [`try_set`]: crate::var_bitmap::VarBitmap::try_set
     pub fn set(&mut self, idx: usize, val: bool) {
-        let _ = self.try_set(idx, val);
+        self.try_set(idx, val).unwrap();
     }
 
+    /// Sets new state for a single bit.
+    ///
+    /// Returns `Err(_)` if resizing fails.
+    ///
+    /// ## Usage example:
+    /// ```
+    /// use bitmac::{VarBitmap, LSB, MinimumRequiredStrategy, LimitStrategy};
+    ///
+    /// let mut bitmap = VarBitmap::<_, LSB, LimitStrategy<MinimumRequiredStrategy>>::new(
+    ///     vec![0u8; 1], LimitStrategy{ strategy: Default::default(), limit: 3 },
+    /// );
+    /// assert!(bitmap.try_set(12, true).is_ok());
+    /// assert!(bitmap.get(12));
+    /// assert_eq!(bitmap.as_ref().len(), 2);
+    /// assert!(bitmap.try_set(12, false).is_ok());
+    /// assert!(!bitmap.get(12));
+    /// assert_eq!(bitmap.as_ref().len(), 2);
+    /// // Grow strategy returns error
+    /// assert!(bitmap.try_set(128, true).is_err());
+    /// assert!(!bitmap.get(128));
+    /// assert_eq!(bitmap.as_ref().len(), 2);
+    /// ```
     pub fn try_set(&mut self, idx: usize, val: bool) -> Result<(), ResizeError> {
         let max_idx = self.data.bits_count();
         if idx < max_idx {
-            self.data.set_bit(idx, val);
+            self.data.set_bit_unchecked(idx, val);
         } else {
-            // Change state only if set to true
             // Try to resize container
             let old_len = self.data.slots_count();
             let min_req_len = old_len + (idx - max_idx) / N::BITS_COUNT + 1;
             let min_req_len = MinimumRequiredLength(min_req_len);
 
-            // Call .try_resize() if new value is `1` and .try_resize_opt() if new value is `0`
-            if val {
+            // Call .try_resize() if new value is `1` or if strategy supports force resizing
+            if val || self.resizing_strategy.is_force_grow() {
                 let FinalLength(new_len) =
-                    self.resizing_strategy
-                        .try_resize(min_req_len, old_len, idx)?;
+                    self.resizing_strategy.try_grow(min_req_len, old_len, idx)?;
 
                 // Resize container if new length doesn't match old length
                 if new_len != old_len {
                     self.data.resize(new_len, N::ZERO);
                 }
-                self.data.set_bit(idx, val);
-            } else if let Some(FinalLength(new_len)) =
-                self.resizing_strategy
-                    .try_resize_opt(min_req_len, old_len, idx)?
-            {
-                // Resize container if new length doesn't match old length
-                if new_len != old_len {
-                    self.data.resize(new_len, N::ZERO);
-                }
-                self.data.set_bit(idx, val);
+                self.data.set_bit_unchecked(idx, val);
             }
         }
 
@@ -248,11 +370,11 @@ where
     type IntoIter = Iter<'a, D, B>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(&self.data)
+        self.iter()
     }
 }
 
-impl<D, B, S, Rhs, N> IntersectionIn<Rhs, N, B> for VarBitmap<D, B, S>
+impl<D, B, S, Rhs, N> Intersection<Rhs, N, B> for VarBitmap<D, B, S>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
@@ -272,15 +394,7 @@ where
     {
         try_intersection_in_impl(&self.data, rhs, dst)
     }
-}
 
-impl<D, B, S, Rhs, N> Intersection<Rhs, N, B> for VarBitmap<D, B, S>
-where
-    D: ContainerRead<B, Slot = N>,
-    B: BitAccess,
-    Rhs: ContainerRead<B, Slot = N>,
-    N: Number,
-{
     fn intersection<Dst>(&self, rhs: &Rhs) -> Dst
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
@@ -294,9 +408,13 @@ where
     {
         try_intersection_impl(&self.data, rhs)
     }
+
+    fn intersection_len(&self, rhs: &Rhs) -> usize {
+        intersection_len_impl(&self.data, rhs)
+    }
 }
 
-impl<D, B, S, Rhs, N> UnionIn<Rhs, N, B> for VarBitmap<D, B, S>
+impl<D, B, S, Rhs, N> Union<Rhs, N, B> for VarBitmap<D, B, S>
 where
     D: ContainerRead<B, Slot = N>,
     B: BitAccess,
@@ -316,15 +434,7 @@ where
     {
         try_union_in_impl(&self.data, rhs, dst)
     }
-}
 
-impl<D, B, S, Rhs, N> Union<Rhs, N, B> for VarBitmap<D, B, S>
-where
-    D: ContainerRead<B, Slot = N>,
-    B: BitAccess,
-    Rhs: ContainerRead<B, Slot = N>,
-    N: Number,
-{
     fn union<Dst>(&self, rhs: &Rhs) -> Dst
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
@@ -337,6 +447,10 @@ where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots,
     {
         try_union_impl(&self.data, rhs)
+    }
+
+    fn union_len(&self, rhs: &Rhs) -> usize {
+        union_len_impl(&self.data, rhs)
     }
 }
 

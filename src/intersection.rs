@@ -5,34 +5,58 @@ use crate::{
     BitAccess, IntersectionError, SmallContainerSizeError,
 };
 
-pub trait IntersectionIn<Rhs, N, B>
+/// Intersection operator (a & b).
+pub trait Intersection<Rhs, N, B>
 where
     Rhs: ContainerRead<B, Slot = N>,
     N: Number,
     B: BitAccess,
 {
+    /// Calculates intersection in-place. Result will be stored in `dst`.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if `dst` cannot fit the entire result.
+    /// See non-panic function [`try_intersection_in`].
+    ///
+    /// [`try_intersection_in`]: crate::intersection::Intersection::try_intersection_in
     fn intersection_in<Dst>(&self, rhs: &Rhs, dst: &mut Dst)
     where
         Dst: ContainerWrite<B, Slot = N>;
 
+    /// Calculates intersection in-place. Result will be stored in `dst`.
+    ///
+    /// Returns `Err(_)` if `dst` cannot fit the entire result.
     fn try_intersection_in<Dst>(&self, rhs: &Rhs, dst: &mut Dst) -> Result<(), IntersectionError>
     where
         Dst: ContainerWrite<B, Slot = N>;
-}
 
-pub trait Intersection<Rhs, N, B>: IntersectionIn<Rhs, N, B>
-where
-    Rhs: ContainerRead<B, Slot = N>,
-    N: Number,
-    B: BitAccess,
-{
+    /// Calculates intersection. Result container will be created with [`try_with_slots`] function.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if `Dst` cannot fit the entire result.
+    /// See non-panic function [`try_intersection`].
+    ///
+    /// [`try_intersection`]: crate::intersection::Intersection::try_intersection
+    /// [`try_with_slots`]: crate::with_slots::TryWithSlots::try_with_slots
     fn intersection<Dst>(&self, rhs: &Rhs) -> Dst
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots;
 
+    /// Calculates intersection. Result container will be created with [`try_with_slots`] function.
+    ///
+    /// Returns `Err(_)` if `Dst` cannot fit the entire result.
+    ///
+    /// [`try_with_slots`]: crate::with_slots::TryWithSlots::try_with_slots
     fn try_intersection<Dst>(&self, rhs: &Rhs) -> Result<Dst, IntersectionError>
     where
         Dst: ContainerWrite<B, Slot = N> + TryWithSlots;
+
+    /// Calculates intersection length - ones count. It doesn't allocate for storing intersection result.
+    ///
+    /// Useful if you need to create some storage that relies on the number of required bits presented in the bitmap.
+    fn intersection_len(&self, rhs: &Rhs) -> usize;
 }
 
 pub(crate) fn try_intersection_in_impl<Lhs, Rhs, Dst, N, B>(
@@ -86,6 +110,25 @@ where
 
     try_intersection_in_impl(lhs, rhs, &mut dst)?;
     Ok(dst)
+}
+
+pub(crate) fn intersection_len_impl<Lhs, Rhs, N, B>(lhs: &Lhs, rhs: &Rhs) -> usize
+where
+    Lhs: ContainerRead<B, Slot = N>,
+    Rhs: ContainerRead<B, Slot = N>,
+    N: Number,
+    B: BitAccess,
+{
+    let max_idx = usize::min(lhs.slots_count(), rhs.slots_count());
+
+    let mut len = 0;
+    for i in 0..max_idx {
+        let lhs_slot = lhs.get_slot(i);
+        let rhs_slot = rhs.get_slot(i);
+        let intersect = lhs_slot & rhs_slot;
+        len += intersect.count_ones() as usize;
+    }
+    len
 }
 
 #[cfg(test)]
@@ -471,5 +514,26 @@ mod tests {
             let mut dst: SmallVec<[u8; 1]> = smallvec![0b0000_0000];
             assert!(try_intersection_in_impl::<_, _, _, _, LSB>(&lhs, &rhs, &mut dst).is_err());
         }
+    }
+
+    #[test]
+    fn intersection_len() {
+        let lhs: u8 = 0b0010_1100;
+        let rhs: u8 = 0b0010_0100;
+        assert_eq!(intersection_len_impl::<_, _, _, LSB>(&lhs, &rhs), 2);
+
+        let lhs: u8 = 0b0010_1100;
+        let rhs: u8 = 0b0010_0110;
+        assert_eq!(intersection_len_impl::<_, _, _, LSB>(&lhs, &rhs), 2);
+
+        /////////
+
+        let lhs: u8 = 0b0010_1100;
+        let rhs: [u8; 2] = [0b0010_0100, 0b0000_0000];
+        assert_eq!(intersection_len_impl::<_, _, _, LSB>(&lhs, &rhs), 2);
+
+        let lhs: u8 = 0b0010_1100;
+        let rhs: [u8; 2] = [0b0010_0100, 0b0101_0000];
+        assert_eq!(intersection_len_impl::<_, _, _, LSB>(&lhs, &rhs), 2);
     }
 }

@@ -1,29 +1,30 @@
 use crate::number::Number;
 
 pub trait Resizable {
-    type Item: Number;
+    type Slot: Number;
 
-    fn resize(&mut self, new_len: usize, value: Self::Item);
+    /// Resizes the `Self` in-place so that `len` is equal to `new_len`.
+    fn resize(&mut self, new_len: usize, value: Self::Slot);
 }
 
 impl<N> Resizable for Vec<N>
 where
     N: Number,
 {
-    type Item = N;
+    type Slot = N;
 
     #[inline]
-    fn resize(&mut self, new_len: usize, value: Self::Item) {
+    fn resize(&mut self, new_len: usize, value: Self::Slot) {
         Vec::resize(self, new_len, value);
     }
 }
 
 #[cfg(feature = "bytes")]
 impl Resizable for bytes::BytesMut {
-    type Item = u8;
+    type Slot = u8;
 
     #[inline]
-    fn resize(&mut self, new_len: usize, value: Self::Item) {
+    fn resize(&mut self, new_len: usize, value: Self::Slot) {
         bytes::BytesMut::resize(self, new_len, value);
     }
 }
@@ -34,10 +35,10 @@ where
     A: smallvec::Array<Item = N>,
     N: Number,
 {
-    type Item = N;
+    type Slot = N;
 
     #[inline]
-    fn resize(&mut self, new_len: usize, value: Self::Item) {
+    fn resize(&mut self, new_len: usize, value: Self::Slot) {
         smallvec::SmallVec::resize(self, new_len, value);
     }
 }

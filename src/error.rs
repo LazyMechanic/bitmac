@@ -8,9 +8,26 @@ pub struct OutOfBoundsError {
 }
 
 impl OutOfBoundsError {
-    /// Creates new error.
-    pub fn new(actual_idx: usize, bounds: Range<usize>) -> Self {
+    pub(crate) fn new(actual_idx: usize, bounds: Range<usize>) -> Self {
         Self { actual_idx, bounds }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("container size is small: {details}")]
+pub struct SmallContainerSizeError {
+    details: String,
+}
+
+impl SmallContainerSizeError {
+    /// Creates new error with details.
+    pub(crate) fn new<C>(details: C) -> Self
+    where
+        C: Into<String>,
+    {
+        Self {
+            details: details.into(),
+        }
     }
 }
 
@@ -39,24 +56,6 @@ pub struct WithSlotsError {
 }
 
 impl WithSlotsError {
-    /// Creates new error with details.
-    pub fn new<C>(details: C) -> Self
-    where
-        C: Into<String>,
-    {
-        Self {
-            details: details.into(),
-        }
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("container size is small: {details}")]
-pub struct SmallContainerSizeError {
-    details: String,
-}
-
-impl SmallContainerSizeError {
     /// Creates new error with details.
     pub fn new<C>(details: C) -> Self
     where
